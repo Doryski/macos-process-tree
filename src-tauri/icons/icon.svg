@@ -1,0 +1,58 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <defs>
+    <!-- macOS squircle clip path (superellipse approximation) -->
+    <clipPath id="squircle">
+      <path d="
+        M 512 0
+        C 791 0 1024 0 1024 233
+        L 1024 791
+        C 1024 1024 791 1024 512 1024
+        L 512 1024
+        C 233 1024 0 1024 0 791
+        L 0 233
+        C 0 0 233 0 512 0
+        Z
+      "/>
+    </clipPath>
+
+    <linearGradient id="bg-gradient" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#22d3ee" stop-opacity="0.05"/>
+      <stop offset="100%" stop-color="#22d3ee" stop-opacity="0.02"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Everything inside the squircle clip -->
+  <g clip-path="url(#squircle)">
+    <!-- Dark background -->
+    <rect width="1024" height="1024" fill="#1a1a2e"/>
+    <rect width="1024" height="1024" fill="url(#bg-gradient)"/>
+
+    <!-- Tree structure - branching lines -->
+    <g stroke="#22d3ee" stroke-width="28" stroke-linecap="round" stroke-linejoin="round" fill="none">
+      <line x1="280" y1="512" x2="420" y2="512"/>
+      <path d="M 420 512 L 420 300 L 560 300"/>
+      <path d="M 560 300 L 560 220 L 700 220"/>
+      <path d="M 560 300 L 560 380 L 700 380"/>
+      <line x1="420" y1="512" x2="560" y2="512"/>
+      <path d="M 560 512 L 700 512"/>
+      <path d="M 420 512 L 420 720 L 560 720"/>
+      <path d="M 560 720 L 700 720"/>
+    </g>
+
+    <!-- Node circles -->
+    <g fill="#22d3ee">
+      <circle cx="280" cy="512" r="30"/>
+      <circle cx="420" cy="512" r="22" opacity="0.8"/>
+      <circle cx="560" cy="300" r="22" opacity="0.8"/>
+      <circle cx="560" cy="512" r="22" opacity="0.8"/>
+      <circle cx="560" cy="720" r="22" opacity="0.8"/>
+      <circle cx="700" cy="220" r="18"/>
+      <circle cx="700" cy="380" r="18"/>
+      <circle cx="700" cy="512" r="18"/>
+      <circle cx="700" cy="720" r="18"/>
+    </g>
+
+    <!-- Subtle glow on root node -->
+    <circle cx="280" cy="512" r="50" fill="#22d3ee" opacity="0.15"/>
+  </g>
+</svg>
