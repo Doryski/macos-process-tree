@@ -1,31 +1,46 @@
 import { useState, useEffect, startTransition } from "react";
-import { streamProcesses } from "../lib/ipc";
+import { beginStream, stopStream, streamProcesses } from "../lib/ipc";
+import {
+  applyStreamTick,
+  INITIAL_STREAM_STATE,
+} from "../lib/sparkline-history";
 import type { ProcessInfo } from "../types/process";
 
 export const useProcessStream = (intervalMs: number) => {
-  const [processes, setProcesses] = useState<ProcessInfo[]>();
+  const [state, setState] = useState(INITIAL_STREAM_STATE);
+  const [refreshKey, setRefreshKey] = useState(0);
 
-  const refetch = () => {
-    // Stream auto-pushes; manual refresh is a no-op
-  };
+  const refetch = () => setRefreshKey((key) => key + 1);
 
   useEffect(() => {
-    if (intervalMs === 0) return;
+    if (intervalMs === 0 && refreshKey === 0) return;
 
-    const { channel } = streamProcesses(
-      (tree) => {
+    let isActive = true;
+    let activeStreamId: number | undefined;
+
+    const startStream = (streamId: number) => {
+      if (!isActive) {
+        stopStream(streamId);
+        return;
+      }
+      activeStreamId = streamId;
+      const handleUpdate = (tree: ProcessInfo[]) => {
+        if (!isActive) return;
         startTransition(() => {
-          setProcesses(tree);
+          setState((prev) => applyStreamTick(prev, tree));
         });
-      },
-      intervalMs,
-      10000,
-    );
+        if (intervalMs === 0) stopStream(streamId);
+      };
+      streamProcesses(handleUpdate, streamId, intervalMs);
+    };
+
+    beginStream().then(startStream);
 
     return () => {
-      channel.onmessage = () => {};
+      isActive = false;
+      if (activeStreamId !== undefined) stopStream(activeStreamId);
     };
-  }, [intervalMs]);
+  }, [intervalMs, refreshKey]);
 
-  return { data: processes, refetch };
+  return { ...state, refetch };
 };

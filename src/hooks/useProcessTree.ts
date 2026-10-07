@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useDeferredValue } from "react";
 import type { ProcessInfo } from "../types/process";
 import {
   getVisibleRows,
@@ -55,8 +55,15 @@ export const useProcessTree = (
 
   const expandedPids = userExpandedPids ?? defaultExpanded;
 
+  const deferredSearchQuery = useDeferredValue(searchQuery);
+
   const filtered = processes
-    ? filterProcesses(processes, searchQuery, searchMode, includeSubprocesses)
+    ? filterProcesses(
+        processes,
+        deferredSearchQuery,
+        searchMode,
+        includeSubprocesses
+      )
     : [];
 
   const visibleRows = getVisibleRows(filtered, expandedPids);

@@ -1,72 +1,81 @@
-use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use sysinfo::System;
-use tauri::{ipc::Channel, State};
+use tauri::{ipc::Channel, AppHandle, Manager, State};
 
 use crate::process_tree;
 use crate::types::{KillResult, ProcessInfo};
 
+pub struct Sampler {
+    pub system: System,
+    pub last_refresh: Option<Instant>,
+}
+
 pub struct AppState {
-    pub system: Mutex<System>,
-    pub snapshot: Mutex<HashMap<u32, process_tree::ProcessSnapshot>>,
+    pub sampler: Mutex<Sampler>,
+    pub latest_stream: AtomicU64,
 }
 
+const MIN_REFRESH_GAP: Duration = Duration::from_millis(500);
+
+fn snapshot_tree(app: &AppHandle) -> Vec<ProcessInfo> {
+    let state = app.state::<AppState>();
+    let mut sampler = state
+        .sampler
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    if let Some(last) = sampler.last_refresh {
+        std::thread::sleep(MIN_REFRESH_GAP.saturating_sub(last.elapsed()));
+    }
+    process_tree::refresh_system(&mut sampler.system);
+    sampler.last_refresh = Some(Instant::now());
+    process_tree::build_process_tree(&sampler.system)
+}
+
+/// Issues a new stream id and supersedes every running stream.
 #[tauri::command]
-pub fn get_process_tree(state: State<AppState>) -> Vec<ProcessInfo> {
-    let mut system = state.system.lock().unwrap();
-    process_tree::refresh_system(&mut system);
-    process_tree::build_process_tree(&system)
+pub fn begin_stream(state: State<AppState>) -> u64 {
+    state.latest_stream.fetch_add(1, Ordering::SeqCst) + 1
 }
 
-/// Stream the full process tree via a Tauri Channel with adaptive polling.
-/// Always sends the complete ordered tree (preserving DFS pre-order).
-/// Uses delta computation internally only to detect idle periods and
-/// slow down polling when nothing changes.
+/// Streams the full process tree while `stream_id` (from `begin_stream`) is the
+/// latest stream and `stop_stream` has not been called for it.
 #[tauri::command]
 pub async fn stream_processes(
-    state: State<'_, AppState>,
+    app: AppHandle,
     on_update: Channel<Vec<ProcessInfo>>,
-    base_interval_ms: u64,
-    max_interval_ms: u64,
+    stream_id: u64,
+    interval_ms: u64,
 ) -> Result<(), String> {
-    let base = Duration::from_millis(base_interval_ms.max(500));
-    let max = Duration::from_millis(max_interval_ms.max(base_interval_ms));
-    let mut current_interval = base;
-    let mut empty_streak = 0u32;
+    let interval = Duration::from_millis(interval_ms).max(MIN_REFRESH_GAP);
+    let state = app.state::<AppState>();
+    let is_current = || state.latest_stream.load(Ordering::SeqCst) == stream_id;
 
-    loop {
-        let (tree, is_empty) = {
-            let mut system = state.system.lock().unwrap();
-            process_tree::refresh_system(&mut system);
-            let tree = process_tree::build_process_tree(&system);
-            let mut snapshot = state.snapshot.lock().unwrap();
-            let delta = process_tree::compute_delta(&tree, &mut snapshot);
-            let is_empty = delta.added.is_empty()
-                && delta.updated.is_empty()
-                && delta.removed.is_empty();
-            (tree, is_empty)
-        };
+    while is_current() {
+        let handle = app.clone();
+        let tree = tauri::async_runtime::spawn_blocking(move || snapshot_tree(&handle))
+            .await
+            .map_err(|e| e.to_string())?;
 
-        // Adaptive polling: slow down when system is idle
-        if is_empty {
-            empty_streak += 1;
-            if empty_streak >= 3 {
-                current_interval = (current_interval * 2).min(max);
-            }
-        } else {
-            empty_streak = 0;
-            current_interval = base;
-        }
-
-        if on_update.send(tree).is_err() {
+        if !is_current() || on_update.send(tree).is_err() {
             break;
         }
 
-        tokio::time::sleep(current_interval).await;
+        tokio::time::sleep(interval).await;
     }
 
     Ok(())
+}
+
+#[tauri::command]
+pub fn stop_stream(state: State<AppState>, stream_id: u64) {
+    let _ = state.latest_stream.compare_exchange(
+        stream_id,
+        stream_id + 1,
+        Ordering::SeqCst,
+        Ordering::SeqCst,
+    );
 }
 
 #[tauri::command]

@@ -94,6 +94,7 @@ export const ProcessRow = memo(function ProcessRow({
         {/* Selection checkbox */}
         <Checkbox
           checked={isSelected}
+          aria-label={`Select ${process.name}`}
           onClick={(e: React.MouseEvent) => {
             e.stopPropagation();
             onSelectToggle(process.pid, e.shiftKey);
@@ -103,6 +104,8 @@ export const ProcessRow = memo(function ProcessRow({
 
         {/* Expand/collapse toggle */}
         <button
+          aria-label={`${isExpanded ? "Collapse" : "Expand"} ${process.name}`}
+          aria-expanded={process.has_children ? isExpanded : undefined}
           onClick={(e: React.MouseEvent) => { e.stopPropagation(); onToggle(process.pid); }}
           className={cn(
             "w-4 h-4 flex items-center justify-center border-none bg-transparent p-0 text-muted-foreground hover:text-foreground transition-colors",
@@ -176,34 +179,26 @@ export const ProcessRow = memo(function ProcessRow({
 
       {/* Kill actions — visible on row hover */}
       <div className="flex gap-1 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity duration-100" style={{ marginRight: 8 }}>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              variant="ghost"
-              size="xs"
-              style={btnPx}
-              onClick={(e: React.MouseEvent) => { e.stopPropagation(); onKill(process.pid, 15); }}
-              className="text-amber-500/70 hover:text-amber-500 hover:bg-amber-500/10 transition-colors"
-            >
-              TERM
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent side="top">SIGTERM (graceful)</TooltipContent>
-        </Tooltip>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              variant="ghost"
-              size="xs"
-              style={btnPx}
-              onClick={(e: React.MouseEvent) => { e.stopPropagation(); onKill(process.pid, 9); }}
-              className="text-red-500/70 hover:text-red-500 hover:bg-red-500/10 transition-colors"
-            >
-              KILL
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent side="top">SIGKILL (force)</TooltipContent>
-        </Tooltip>
+        <Button
+          variant="ghost"
+          size="xs"
+          style={btnPx}
+          title="SIGTERM (graceful)"
+          onClick={(e: React.MouseEvent) => { e.stopPropagation(); onKill(process.pid, 15); }}
+          className="text-amber-500/70 hover:text-amber-500 hover:bg-amber-500/10 transition-colors"
+        >
+          TERM
+        </Button>
+        <Button
+          variant="ghost"
+          size="xs"
+          style={btnPx}
+          title="SIGKILL (force)"
+          onClick={(e: React.MouseEvent) => { e.stopPropagation(); onKill(process.pid, 9); }}
+          className="text-red-500/70 hover:text-red-500 hover:bg-red-500/10 transition-colors"
+        >
+          KILL
+        </Button>
       </div>
     </div>
   );

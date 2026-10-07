@@ -102,6 +102,7 @@ export function Toolbar({
         <Search className="absolute left-2 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground pointer-events-none" />
         <input
           type="text"
+          aria-label="Search processes"
           placeholder={`Search (${searchMode})...`}
           value={searchQuery}
           onChange={(e) => onSearchChange(e.target.value)}
@@ -221,6 +222,7 @@ export function Toolbar({
             size="icon-xs"
             style={iconBtnPx}
             onClick={onExpandAll}
+            aria-label="Expand all"
           >
             <Maximize2 className="size-3" />
           </Button>
@@ -234,6 +236,7 @@ export function Toolbar({
             size="icon-xs"
             style={iconBtnPx}
             onClick={onCollapseAll}
+            aria-label="Collapse all"
           >
             <Minimize2 className="size-3" />
           </Button>
@@ -252,6 +255,7 @@ export function Toolbar({
             size="icon-xs"
             style={iconBtnPx}
             onClick={handleRefreshNow}
+            aria-label="Refresh now"
           >
             <RefreshCw className="size-3 transition-transform duration-1000" style={{ transform: `rotate(${spinCount * 360}deg)` }} />
           </Button>

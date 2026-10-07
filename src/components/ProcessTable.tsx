@@ -1,7 +1,7 @@
 import { useRef } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import type { ProcessInfo } from "../types/process";
-import type { SparklineHistory } from "../hooks/useSparklineHistory";
+import type { SparklineHistory } from "../lib/sparkline-history";
 import { ProcessRow } from "./ProcessRow";
 
 const ROW_HEIGHT = 32;
@@ -62,7 +62,7 @@ export function ProcessTable({
       <div
         ref={parentRef}
         className="flex-1 overflow-auto"
-        style={{ contain: "strict", willChange: "transform" }}
+        style={{ contain: "strict" }}
       >
         <div
           className="w-full relative"
@@ -79,8 +79,6 @@ export function ProcessTable({
                 height: ROW_HEIGHT,
                 transform: `translateY(${virtualRow.start}px)`,
                 contain: "layout paint",
-                contentVisibility: "auto",
-                containIntrinsicSize: "0 32px",
               }}
             >
               <ProcessRow

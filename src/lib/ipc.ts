@@ -7,27 +7,23 @@ export type KillResult = {
   error: string | null;
 };
 
-export const getProcessTree = () => invoke<ProcessInfo[]>("get_process_tree");
-
 export const killProcess = (pid: number, signal: number) =>
   invoke<void>("kill_process", { pid, signal });
 
 export const killProcesses = (pids: number[], signal: number) =>
   invoke<KillResult[]>("kill_processes", { pids, signal });
 
+export const beginStream = () => invoke<number>("begin_stream");
+
 export const streamProcesses = (
   onUpdate: (tree: ProcessInfo[]) => void,
-  baseIntervalMs: number = 2000,
-  maxIntervalMs: number = 10000,
+  streamId: number,
+  intervalMs: number
 ) => {
   const channel = new Channel<ProcessInfo[]>();
   channel.onmessage = onUpdate;
-
-  const promise = invoke("stream_processes", {
-    onUpdate: channel,
-    baseIntervalMs,
-    maxIntervalMs,
-  });
-
-  return { channel, promise };
+  return invoke("stream_processes", { onUpdate: channel, streamId, intervalMs });
 };
+
+export const stopStream = (streamId: number) =>
+  invoke("stop_stream", { streamId });

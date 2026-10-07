@@ -1,20 +1,41 @@
 use std::collections::HashMap;
 use sysinfo::{Pid, ProcessesToUpdate, System, UpdateKind, ProcessRefreshKind};
 
-use crate::types::{ProcessInfo, ProcessDelta, ProcessUpdate};
+use crate::types::ProcessInfo;
 
-/// Get the parent PID via `ps` as fallback when sysinfo returns None
+#[repr(C)]
+#[allow(dead_code)]
+struct ProcBsdShortInfo {
+    pbsi_pid: u32,
+    pbsi_ppid: u32,
+    pbsi_pgid: u32,
+    pbsi_status: u32,
+    pbsi_comm: [u8; 16],
+    pbsi_flags: u32,
+    pbsi_uid: u32,
+    pbsi_gid: u32,
+    pbsi_ruid: u32,
+    pbsi_rgid: u32,
+    pbsi_svuid: u32,
+    pbsi_svgid: u32,
+    pbsi_rfu: u32,
+}
+
+const PROC_PIDT_SHORTBSDINFO: i32 = 13;
+
 fn get_ppid_fallback(pid: u32) -> Option<u32> {
-    std::process::Command::new("ps")
-        .args(["-p", &pid.to_string(), "-o", "ppid="])
-        .output()
-        .ok()
-        .and_then(|output| {
-            String::from_utf8_lossy(&output.stdout)
-                .trim()
-                .parse::<u32>()
-                .ok()
-        })
+    let mut info = std::mem::MaybeUninit::<ProcBsdShortInfo>::zeroed();
+    let size = std::mem::size_of::<ProcBsdShortInfo>() as i32;
+    let written = unsafe {
+        libc::proc_pidinfo(
+            pid as i32,
+            PROC_PIDT_SHORTBSDINFO,
+            0,
+            info.as_mut_ptr().cast(),
+            size,
+        )
+    };
+    (written == size).then(|| unsafe { info.assume_init() }.pbsi_ppid)
 }
 
 fn status_to_string(status: sysinfo::ProcessStatus) -> String {
@@ -52,19 +73,16 @@ pub fn build_process_tree(system: &System) -> Vec<ProcessInfo> {
         }
     }
 
+    let sort_key = |pid: &u32| {
+        processes
+            .get(&Pid::from_u32(*pid))
+            .map(|p| p.name().to_string_lossy().to_lowercase())
+            .unwrap_or_default()
+    };
+
     // Sort children by name for consistent ordering
     for children in children_map.values_mut() {
-        children.sort_by(|a, b| {
-            let name_a = processes
-                .get(&Pid::from_u32(*a))
-                .map(|p| p.name().to_string_lossy().to_string())
-                .unwrap_or_default();
-            let name_b = processes
-                .get(&Pid::from_u32(*b))
-                .map(|p| p.name().to_string_lossy().to_string())
-                .unwrap_or_default();
-            name_a.to_lowercase().cmp(&name_b.to_lowercase())
-        });
+        children.sort_by_cached_key(sort_key);
     }
 
     // Find root processes (parent not in our process list or ppid is 0)
@@ -82,17 +100,7 @@ pub fn build_process_tree(system: &System) -> Vec<ProcessInfo> {
         .copied()
         .collect();
 
-    roots.sort_by(|a, b| {
-        let name_a = processes
-            .get(&Pid::from_u32(*a))
-            .map(|p| p.name().to_string_lossy().to_string())
-            .unwrap_or_default();
-        let name_b = processes
-            .get(&Pid::from_u32(*b))
-            .map(|p| p.name().to_string_lossy().to_string())
-            .unwrap_or_default();
-        name_a.to_lowercase().cmp(&name_b.to_lowercase())
-    });
+    roots.sort_by_cached_key(sort_key);
 
     // DFS to build flat pre-order list
     let mut result = Vec::new();
@@ -123,7 +131,6 @@ pub fn build_process_tree(system: &System) -> Vec<ProcessInfo> {
                 .exe()
                 .map(|p| p.to_string_lossy().to_string())
                 .unwrap_or_default(),
-            cmd: process.cmd().iter().map(|s| s.to_string_lossy().to_string()).collect(),
             depth,
             has_children,
         });
@@ -139,121 +146,11 @@ pub fn build_process_tree(system: &System) -> Vec<ProcessInfo> {
     result
 }
 
-/// Snapshot of a process for delta comparison
-#[derive(Clone)]
-pub struct ProcessSnapshot {
-    pub ppid: Option<u32>,
-    pub name: String,
-    pub cpu: f32,
-    pub memory: u64,
-    pub status: String,
-    pub depth: u32,
-    pub has_children: bool,
-}
-
-impl ProcessSnapshot {
-    fn from_info(info: &ProcessInfo) -> Self {
-        Self {
-            ppid: info.ppid,
-            name: info.name.clone(),
-            cpu: info.cpu,
-            memory: info.memory,
-            status: info.status.clone(),
-            depth: info.depth,
-            has_children: info.has_children,
-        }
-    }
-}
-
-const CPU_THRESHOLD: f32 = 0.1;
-
-/// Compute delta between current tree and previous snapshot.
-/// Updates `prev_snapshot` in place for the next tick.
-pub fn compute_delta(
-    current: &[ProcessInfo],
-    prev_snapshot: &mut HashMap<u32, ProcessSnapshot>,
-) -> ProcessDelta {
-    if prev_snapshot.is_empty() {
-        // First tick: send everything as "added", mark as full snapshot
-        for p in current {
-            prev_snapshot.insert(p.pid, ProcessSnapshot::from_info(p));
-        }
-        return ProcessDelta {
-            added: current.to_vec(),
-            updated: vec![],
-            removed: vec![],
-            is_full: true,
-        };
-    }
-
-    let mut added = Vec::new();
-    let mut updated = Vec::new();
-    let current_pids: std::collections::HashSet<u32> = current.iter().map(|p| p.pid).collect();
-
-    for p in current {
-        match prev_snapshot.get(&p.pid) {
-            None => {
-                // New process
-                added.push(p.clone());
-                prev_snapshot.insert(p.pid, ProcessSnapshot::from_info(p));
-            }
-            Some(prev) => {
-                // Check if values changed beyond threshold
-                let cpu_changed = (p.cpu - prev.cpu).abs() > CPU_THRESHOLD;
-                let mem_changed = p.memory != prev.memory;
-                let status_changed = p.status != prev.status;
-                let depth_changed = p.depth != prev.depth;
-                let children_changed = p.has_children != prev.has_children;
-                let name_changed = p.name != prev.name;
-                let ppid_changed = p.ppid != prev.ppid;
-
-                if cpu_changed || mem_changed || status_changed || depth_changed
-                    || children_changed || name_changed || ppid_changed
-                {
-                    if name_changed || ppid_changed {
-                        // Structural change: treat as re-add
-                        added.push(p.clone());
-                    } else {
-                        updated.push(ProcessUpdate {
-                            pid: p.pid,
-                            cpu: p.cpu,
-                            memory: p.memory,
-                            status: p.status.clone(),
-                            depth: p.depth,
-                            has_children: p.has_children,
-                        });
-                    }
-                    prev_snapshot.insert(p.pid, ProcessSnapshot::from_info(p));
-                }
-            }
-        }
-    }
-
-    // Find removed processes
-    let removed: Vec<u32> = prev_snapshot
-        .keys()
-        .filter(|pid| !current_pids.contains(pid))
-        .copied()
-        .collect();
-
-    for pid in &removed {
-        prev_snapshot.remove(pid);
-    }
-
-    ProcessDelta {
-        added,
-        updated,
-        removed,
-        is_full: false,
-    }
-}
-
 pub fn refresh_kind() -> ProcessRefreshKind {
     ProcessRefreshKind::nothing()
         .with_cpu()
         .with_memory()
         .with_exe(UpdateKind::OnlyIfNotSet)
-        .with_cmd(UpdateKind::OnlyIfNotSet)
 }
 
 pub fn refresh_system(system: &mut System) {

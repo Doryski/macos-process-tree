@@ -6,7 +6,6 @@ export type ProcessInfo = {
   memory: number;
   status: string;
   exe: string;
-  cmd: string[];
   depth: number;
   has_children: boolean;
 };

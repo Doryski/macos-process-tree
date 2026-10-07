@@ -1,23 +1,28 @@
 import Fuse from "fuse.js";
 import type { ProcessInfo } from "../types/process";
 
-type FuseProcessItem = ProcessInfo & { pidStr: string };
-
 const FUSE_OPTIONS = {
-  keys: ["name", "exe", "pidStr"],
+  keys: [
+    "name",
+    "exe",
+    { name: "pid", getFn: (p: ProcessInfo) => String(p.pid) },
+  ],
   threshold: 0.2,
   ignoreLocation: true,
+};
+
+const fuseCache = new WeakMap<readonly ProcessInfo[], Fuse<ProcessInfo>>();
+
+const getFuse = (processes: readonly ProcessInfo[]) => {
+  const cached = fuseCache.get(processes);
+  if (cached) return cached;
+  const fuse = new Fuse(processes, FUSE_OPTIONS);
+  fuseCache.set(processes, fuse);
+  return fuse;
 };
 
 export const fuzzyMatchPids = (
   processes: readonly ProcessInfo[],
   query: string
-): Set<number> => {
-  const items: FuseProcessItem[] = processes.map((p) => ({
-    ...p,
-    pidStr: String(p.pid),
-  }));
-  const fuse = new Fuse(items, FUSE_OPTIONS);
-  const results = fuse.search(query);
-  return new Set(results.map((r) => r.item.pid));
-};
+): Set<number> =>
+  new Set(getFuse(processes).search(query).map((r) => r.item.pid));

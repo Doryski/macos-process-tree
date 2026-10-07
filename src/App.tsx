@@ -3,7 +3,6 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useKillProcess, useKillProcesses } from "./hooks/useProcessQuery";
 import { useProcessStream } from "./hooks/useProcessStream";
 import { useProcessTree } from "./hooks/useProcessTree";
-import { useSparklineHistory } from "./hooks/useSparklineHistory";
 import { useSelection } from "./hooks/useSelection";
 import { ProcessTable } from "./components/ProcessTable";
 import { Toolbar } from "./components/Toolbar";
@@ -19,9 +18,6 @@ type PendingKillAction = {
 };
 
 const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: { staleTime: 500 },
-  },
 });
 
 function ProcessTreeApp() {
@@ -47,15 +43,18 @@ function ProcessTreeApp() {
     saveState("includeSubprocesses", value);
   };
 
-  const { data: processes, refetch } = useProcessStream(refreshInterval);
+  const {
+    processes,
+    history: sparklineHistory,
+    refetch,
+  } = useProcessStream(refreshInterval);
   const killMutation = useKillProcess();
   const killProcessesMutation = useKillProcesses();
 
-  // Defer process data so all downstream hooks (tree, sparklines, selection)
+  // Defer process data so all downstream hooks (tree, selection)
   // compute on a non-urgent schedule — scroll stays responsive during data refreshes
   const deferredProcesses = useDeferredValue(processes);
-
-  const sparklineHistory = useSparklineHistory(deferredProcesses);
+  const deferredSparklineHistory = useDeferredValue(sparklineHistory);
 
   const {
     visibleRows,
@@ -88,15 +87,15 @@ function ProcessTreeApp() {
     if (!pendingKill) return;
 
     if (pendingKill.pids.length === 1) {
-      killMutation.mutate({
-        pid: pendingKill.pids[0],
-        signal: pendingKill.signal,
-      });
+      killMutation.mutate(
+        { pid: pendingKill.pids[0], signal: pendingKill.signal },
+        { onSettled: refetch }
+      );
     } else {
-      killProcessesMutation.mutate({
-        pids: pendingKill.pids,
-        signal: pendingKill.signal,
-      });
+      killProcessesMutation.mutate(
+        { pids: pendingKill.pids, signal: pendingKill.signal },
+        { onSettled: refetch }
+      );
     }
 
     setPendingKill(null);
@@ -128,10 +127,6 @@ function ProcessTreeApp() {
     };
   })();
 
-  const handleRefreshNow = () => {
-    refetch();
-  };
-
   return (
     <div className="h-screen bg-background text-foreground overflow-hidden">
       <Toolbar
@@ -143,7 +138,7 @@ function ProcessTreeApp() {
         onIncludeSubprocessesChange={updateIncludeSubprocesses}
         refreshInterval={refreshInterval}
         onRefreshIntervalChange={setRefreshInterval}
-        onRefreshNow={handleRefreshNow}
+        onRefreshNow={refetch}
         onExpandAll={expandAll}
         onCollapseAll={collapseAll}
         totalCount={totalCount}
@@ -160,7 +155,7 @@ function ProcessTreeApp() {
         onToggle={toggle}
         onKill={handleKill}
         onSelectToggle={toggleSelect}
-        sparklineHistory={sparklineHistory}
+        sparklineHistory={deferredSparklineHistory}
       />
       {confirmDialogProps && (
         <ConfirmDialog

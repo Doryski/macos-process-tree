@@ -1,3 +1,5 @@
+import { MAX_SAMPLES } from "../lib/sparkline-history";
+
 type SparklineProps = {
   data: readonly number[];
   width?: number;
@@ -11,7 +13,7 @@ export function Sparkline({
   width = 60,
   height = 16,
   color = "#38bdf8",
-  maxSamples = 20,
+  maxSamples = MAX_SAMPLES,
 }: SparklineProps) {
   if (data.length < 2) return <div style={{ width, height }} />;
 

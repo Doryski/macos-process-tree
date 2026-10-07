@@ -11,7 +11,6 @@ const makeProcess = (
   memory: 0,
   status: "Run",
   exe: "",
-  cmd: [],
   depth: 0,
   has_children: false,
   ...overrides,

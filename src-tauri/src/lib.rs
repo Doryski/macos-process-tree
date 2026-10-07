@@ -2,11 +2,10 @@ mod commands;
 mod process_tree;
 mod types;
 
-use std::collections::HashMap;
-use std::sync::Mutex;
+use std::sync::{atomic::AtomicU64, Mutex};
 use sysinfo::System;
 
-use commands::AppState;
+use commands::{AppState, Sampler};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -17,12 +16,16 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .manage(AppState {
-            system: Mutex::new(system),
-            snapshot: Mutex::new(HashMap::new()),
+            sampler: Mutex::new(Sampler {
+                system,
+                last_refresh: Some(std::time::Instant::now()),
+            }),
+            latest_stream: AtomicU64::new(0),
         })
         .invoke_handler(tauri::generate_handler![
-            commands::get_process_tree,
+            commands::begin_stream,
             commands::stream_processes,
+            commands::stop_stream,
             commands::kill_process,
             commands::kill_processes,
         ])
